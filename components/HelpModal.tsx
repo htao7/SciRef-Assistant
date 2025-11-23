@@ -49,7 +49,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
               Quick Start
             </h3>
             <ul className="list-disc pl-10 space-y-2 marker:text-indigo-400">
-              <li><strong>Paste Manuscript:</strong> Copy your text into the editor on the left.</li>
+              <li><strong>Paste Manuscript:</strong> Copy your text into the editor.</li>
               <li><strong>Highlight Text:</strong> Select (highlight) a specific sentence or claim you want to cite.</li>
               <li><strong>Get References:</strong> The assistant automatically analyzes the context of your selection and finds relevant papers in the right-hand panel.</li>
             </ul>
@@ -80,7 +80,6 @@ export const HelpModal: React.FC<HelpModalProps> = ({ onClose }) => {
                     <ul className="text-sm space-y-1 list-disc pl-4">
                         <li><strong>Disapprove:</strong> Remove irrelevant papers via the card menu.</li>
                         <li><strong>Learning:</strong> The AI learns from your rejections to find better replacements.</li>
-                        <li><strong>Verification:</strong> URLs are automatically checked.</li>
                     </ul>
                 </div>
             </div>

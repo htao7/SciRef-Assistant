@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { SortPriority, Reference, SearchPreferences, SelectionContext, SearchResultData, DisapprovalReason } from './types';
+import { SortPriority, Reference, SearchPreferences, SelectionContext, SearchResultData, DisapprovalReason, ModelId } from './types';
 import { fetchReferences } from './services/geminiService';
 import { Spinner } from './components/Spinner';
 import { ReferenceCard } from './components/ReferenceCard';
@@ -29,6 +29,7 @@ const App: React.FC = () => {
   
   // UI State
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [customApiKey, setCustomApiKey] = useState('');
 
   // State for Preferences (Global controls for the *next* search)
   const [prefs, setPrefs] = useState<SearchPreferences>({
@@ -36,7 +37,8 @@ const App: React.FC = () => {
     priority: SortPriority.MOST_CITED,
     publisherFilter: [],
     sourceTypes: [],
-    yearStart: '2018'
+    yearStart: '2018',
+    model: ModelId.BALANCED
   });
   
   // Track disapproval history for learning
@@ -118,7 +120,23 @@ const App: React.FC = () => {
       ...currentPrefs,
       excludeTitles: existingTitles
     };
-    return await fetchReferences(context, searchPrefs, disapprovalHistory);
+    return await fetchReferences(context, searchPrefs, disapprovalHistory, customApiKey);
+  };
+
+  const sortReferencesByPriority = (refs: Reference[], priority: SortPriority): Reference[] => {
+    const sorted = [...refs];
+    if (priority === SortPriority.NEWEST) {
+       return sorted.sort((a, b) => {
+          const valA = parseInt(a.year.replace(/\D/g, '')) || 0;
+          const valB = parseInt(b.year.replace(/\D/g, '')) || 0;
+          return valB - valA;
+       });
+    }
+    if (priority === SortPriority.MOST_CITED) {
+       return sorted.sort((a, b) => (b.citationCount || 0) - (a.citationCount || 0));
+    }
+    // For HIGH_IMPACT, we rely on the order returned by the AI as we don't have Impact Factor data
+    return sorted;
   };
 
   const handleSearch = () => {
@@ -178,8 +196,10 @@ const App: React.FC = () => {
                 // Safety check if entry still exists (user might have deleted it while loading)
                 if (!prev[searchId]) return prev;
 
-                const visible = allResults.slice(0, prefs.numReferences);
-                const pool = allResults.slice(prefs.numReferences);
+                const sortedResults = sortReferencesByPriority(allResults, prefs.priority);
+
+                const visible = sortedResults.slice(0, prefs.numReferences);
+                const pool = sortedResults.slice(prefs.numReferences);
 
                 return {
                     ...prev,
@@ -229,8 +249,12 @@ const App: React.FC = () => {
         .then(allResults => {
             setSearchHistory(prev => {
                 if (!prev[searchId]) return prev;
-                const visible = allResults.slice(0, prefs.numReferences);
-                const pool = allResults.slice(prefs.numReferences);
+
+                const sortedResults = sortReferencesByPriority(allResults, prefs.priority);
+
+                const visible = sortedResults.slice(0, prefs.numReferences);
+                const pool = sortedResults.slice(prefs.numReferences);
+
                 return {
                     ...prev,
                     [searchId]: {
@@ -314,7 +338,7 @@ const App: React.FC = () => {
         newPool = newPool.filter(ref => ref.publication.toLowerCase().trim() !== unwantedSource);
     }
 
-    // Re-rank
+    // Re-rank for replacement ONLY (Does not re-sort the entire list)
     if (newPool.length > 0) {
       if (reason === DisapprovalReason.NOT_NEW) {
          newPool.sort((a, b) => parseInt(b.year) - parseInt(a.year));
@@ -467,151 +491,205 @@ const App: React.FC = () => {
   const currentReferences = activeData?.visible || [];
   const currentError = activeData?.errorMessage;
 
+  const isCustomKeyUsed = !!customApiKey && customApiKey.trim().length > 0;
+
   return (
-    <div className="flex h-screen w-full flex-col md:flex-row bg-slate-100">
+    <div className="flex h-screen w-full flex-col lg:flex-row bg-slate-100 overflow-hidden">
       {isHelpOpen && <HelpModal onClose={() => setIsHelpOpen(false)} />}
       
-      {/* LEFT PANEL: EDITOR */}
-      <div className="flex-1 flex flex-col p-6 border-r border-slate-200 bg-white h-full overflow-hidden">
-        <div className="mb-4">
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <span className="bg-indigo-600 text-white p-1 rounded-md text-sm">SciRef</span>
-            Assistant
+      {/* --- PANEL 1: CONFIGURATION (Left) --- */}
+      <div className="w-full lg:w-80 bg-white border-r border-slate-200 flex flex-col z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)] h-[40vh] lg:h-full flex-shrink-0">
+        
+        {/* Header */}
+        <div className="p-5 border-b border-slate-100 bg-white z-10">
+          <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2 mb-4">
+            <span className="bg-indigo-600 text-white px-2 py-0.5 rounded text-sm">SciRef</span>
+            <span className="tracking-tight">Assistant</span>
           </h1>
-          <p className="text-slate-500 text-sm mt-1">
-            Paste your manuscript, highlight a claim, and find citations instantly.
-          </p>
+          
+          {/* Primary Action Button - Moved to Top */}
+          <button 
+              onClick={handleSearch}
+              className="w-full py-2.5 px-4 rounded-md shadow-sm text-sm font-semibold text-white transition-all flex justify-center items-center gap-2 bg-indigo-600 hover:bg-indigo-700 hover:shadow-md active:transform active:scale-95"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              Find References for Selected Text
+          </button>
         </div>
 
-        <div className="flex-1 relative border border-slate-300 rounded-lg shadow-inner bg-slate-50 overflow-hidden flex flex-col">
-            <div className="bg-slate-100 px-4 py-2 border-b border-slate-300 flex justify-between items-center">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Manuscript Editor</span>
-                <div className="flex items-center gap-4">
-                  <button 
-                    onClick={() => setIsHelpOpen(true)}
-                    className="text-xs flex items-center gap-1 text-slate-500 hover:text-indigo-600 font-medium transition-colors"
-                  >
-                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                     </svg>
-                     How to Use
-                  </button>
-                  <button 
-                    onClick={handleExport}
-                    className="text-xs flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
-                    title="Download text with citations"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                    </svg>
-                    Export
-                  </button>
-                  <span className="text-xs text-slate-400">Rich Text Mode</span>
+        {/* Scrollable Settings */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-6">
+           
+           {/* API Key & Model */}
+           <section className="space-y-4">
+             <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">System</h3>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${isCustomKeyUsed ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+                    {isCustomKeyUsed ? 'Using: Custom Key' : 'Using: Default Quota'}
+                </span>
+             </div>
+             
+             <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">API Key (Optional)</label>
+                <input 
+                  type="password" 
+                  value={customApiKey}
+                  onChange={(e) => setCustomApiKey(e.target.value)}
+                  placeholder="Enter your Gemini API key"
+                  className="w-full p-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none transition-shadow"
+                />
+             </div>
+
+             <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">AI Model</label>
+                <div className="relative">
+                    <select
+                      name="model"
+                      value={prefs.model}
+                      onChange={handleInputChange}
+                      className="w-full p-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none bg-white appearance-none"
+                    >
+                      <option value={ModelId.BEST}>Best (Gemini 3.0 Pro)</option>
+                      <option value={ModelId.BALANCED}>Balanced (Gemini 2.5 Flash)</option>
+                      <option value={ModelId.FAST}>Fast (Gemini 2.5 Flash Lite)</option>
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                    </div>
                 </div>
-            </div>
-            
-            <div 
-                ref={editorRef}
-                className="flex-1 w-full h-full p-6 outline-none font-serif text-lg leading-relaxed text-slate-800 bg-white overflow-y-auto"
-                contentEditable
-                suppressContentEditableWarning={true}
-                onClick={handleEditorClick}
-                onPaste={handlePaste}
-                spellCheck={false}
-                style={{ whiteSpace: 'pre-wrap' }}
-            >
-            </div>
-        </div>
-        
-        <div className="mt-2 text-xs text-slate-400 text-center flex justify-center gap-4">
-           <span>Tip: Highlight text to search. Multiple searches can run in background.</span>
+             </div>
+           </section>
+
+           <hr className="border-slate-100" />
+
+           {/* Search Parameters */}
+           <section className="space-y-4 pb-20"> {/* Padding bottom for dropdowns */}
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Search Parameters</h3>
+              
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">Priority</label>
+                <div className="relative">
+                  <select 
+                    name="priority" 
+                    value={prefs.priority} 
+                    onChange={handleInputChange}
+                    className="w-full p-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none bg-white appearance-none"
+                  >
+                    {Object.values(SortPriority).map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                   <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                    </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">Count (1-5)</label>
+                  <input 
+                    type="number" 
+                    name="numReferences"
+                    min={1} max={5}
+                    value={prefs.numReferences}
+                    onChange={handleInputChange}
+                    className="w-full p-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1.5">From Year</label>
+                  <input 
+                    type="text" 
+                    name="yearStart"
+                    placeholder="e.g. 2018"
+                    value={prefs.yearStart}
+                    onChange={handleInputChange}
+                    className="w-full p-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <MultiSelect 
+                label="Publisher Filter"
+                options={PUBLISHER_OPTIONS}
+                selected={prefs.publisherFilter}
+                onChange={handleMultiSelectChange('publisherFilter')}
+                placeholder="All Publishers"
+              />
+
+              <MultiSelect 
+                label="Document Type"
+                options={TYPE_OPTIONS}
+                selected={prefs.sourceTypes}
+                onChange={handleMultiSelectChange('sourceTypes')}
+                placeholder="All Types"
+              />
+           </section>
         </div>
       </div>
 
-      {/* RIGHT PANEL: CONTROLS & RESULTS */}
-      <div className="w-full md:w-96 lg:w-[28rem] bg-slate-50 flex flex-col h-full border-l border-slate-200 shadow-xl z-10">
-        
-        {/* CONTROL HEADER */}
-        <div className="p-6 bg-white border-b border-slate-200 shadow-sm overflow-y-auto max-h-[50vh]">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4">Search Preferences</h2>
-          
-          <div className="space-y-4">
-            {/* Priority */}
-            <div>
-              <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Priority</label>
-              <select 
-                name="priority" 
-                value={prefs.priority} 
-                onChange={handleInputChange}
-                className="w-full p-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white"
+      {/* --- PANEL 2: EDITOR (Center) --- */}
+      <div className="flex-1 flex flex-col relative min-w-0 bg-slate-50/50 h-[60vh] lg:h-full">
+        <div className="h-14 border-b border-slate-200 bg-white flex items-center justify-between px-6 shadow-sm z-10 flex-shrink-0">
+           <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-700">Manuscript Editor</span>
+              <span className="text-xs text-slate-400 border border-slate-200 rounded px-1.5 bg-slate-50">Rich Text</span>
+           </div>
+           
+           <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setIsHelpOpen(true)}
+                className="text-xs flex items-center gap-1 text-slate-500 hover:text-indigo-600 font-medium transition-colors px-2 py-1 hover:bg-slate-50 rounded"
               >
-                {Object.values(SortPriority).map(p => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </div>
+                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                 </svg>
+                 Guide
+              </button>
+              <div className="h-4 w-px bg-slate-200"></div>
+              <button 
+                onClick={handleExport}
+                className="text-xs flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-semibold transition-colors bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-md"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                </svg>
+                Export
+              </button>
+           </div>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 flex justify-center bg-slate-100/50">
+           <div 
+               ref={editorRef}
+               className="max-w-3xl w-full bg-white shadow-sm border border-slate-200 min-h-[800px] p-8 md:p-12 outline-none font-serif text-lg leading-relaxed text-slate-800"
+               contentEditable
+               suppressContentEditableWarning={true}
+               onClick={handleEditorClick}
+               onPaste={handlePaste}
+               spellCheck={false}
+               style={{ whiteSpace: 'pre-wrap' }}
+           />
+        </div>
+      </div>
 
-            {/* Row: Count & Year */}
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-slate-500 mb-1">No. of REFS (1-5)</label>
-                <input 
-                  type="number" 
-                  name="numReferences"
-                  min={1} max={5}
-                  value={prefs.numReferences}
-                  onChange={handleInputChange}
-                  className="w-full p-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-slate-500 uppercase mb-1">After Year</label>
-                <input 
-                  type="text" 
-                  name="yearStart"
-                  placeholder="e.g. 2015"
-                  value={prefs.yearStart}
-                  onChange={handleInputChange}
-                  className="w-full p-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Publisher MultiSelect */}
-            <MultiSelect 
-              label="Publisher Filter"
-              options={PUBLISHER_OPTIONS}
-              selected={prefs.publisherFilter}
-              onChange={handleMultiSelectChange('publisherFilter')}
-              placeholder="All Publishers"
-            />
-
-            {/* Type MultiSelect */}
-            <MultiSelect 
-              label="Document Type"
-              options={TYPE_OPTIONS}
-              selected={prefs.sourceTypes}
-              onChange={handleMultiSelectChange('sourceTypes')}
-              placeholder="All Types"
-            />
-
-            {/* Search Button */}
-            <button 
-              onClick={handleSearch}
-              className="w-full mt-4 py-3 px-4 rounded-md shadow-sm text-sm font-medium text-white transition-all flex justify-center items-center gap-2 bg-indigo-600 hover:bg-indigo-700 hover:shadow-md active:transform active:scale-95"
-            >
-              Find References for Selection
-            </button>
-          </div>
+      {/* --- PANEL 3: RESULTS (Right) --- */}
+      <div className="w-full lg:w-96 bg-white border-l border-slate-200 flex flex-col z-10 h-full flex-shrink-0">
+        
+        {/* Results Header */}
+        <div className="h-14 border-b border-slate-200 flex items-center px-5 bg-white z-10 flex-shrink-0">
+            <span className="font-semibold text-slate-800">Results</span>
         </div>
 
-        {/* RESULTS LIST */}
-        <div className="flex-1 overflow-y-auto p-6 bg-slate-50 relative">
-          <div className="absolute top-0 left-0 w-full h-4 bg-gradient-to-b from-slate-50 to-transparent pointer-events-none"></div>
+        {/* Results Content */}
+        <div className="flex-1 overflow-y-auto p-5 bg-slate-50 relative">
           
           {uiError && (
-             <div className="p-4 bg-red-50 border border-red-200 rounded-md text-red-600 text-sm mb-4">
-               <strong>Validation Error:</strong> {uiError}
+             <div className="p-4 bg-red-50 border border-red-200 rounded-md text-red-600 text-xs mb-4">
+               <strong>Note:</strong> {uiError}
              </div>
           )}
 
@@ -622,76 +700,98 @@ const App: React.FC = () => {
           )}
 
           {activeData && (
-             <div className="mb-6 bg-white border border-slate-200 rounded-md shadow-sm p-4 text-xs text-slate-600">
-                <div className="flex justify-between items-start mb-2 border-b border-slate-100 pb-2">
-                    <h3 className="font-bold text-slate-800 uppercase tracking-wide">Search Options Used</h3>
-                    <div className="flex gap-3">
-                        <button 
+             <div className="mb-6 bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+                <div className="bg-slate-50/80 px-4 py-3 border-b border-slate-100 flex justify-between items-center">
+                    <h3 className="font-bold text-slate-700 uppercase tracking-wide text-[10px] flex items-center gap-1">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        Search Parameters
+                    </h3>
+                    <div className="flex gap-2">
+                         <button 
                             onClick={handleRetry}
                             disabled={isCurrentLoading}
-                            className={`text-indigo-600 hover:text-indigo-800 font-semibold hover:underline flex items-center gap-1 ${isCurrentLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`text-xs px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-slate-50 text-indigo-600 font-medium flex items-center gap-1 transition-all ${isCurrentLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            title="Retry this search"
                         >
-                            {isCurrentLoading ? (
-                                <>
-                                  <Spinner />
-                                  Processing...
-                                </>
-                            ) : (
-                                <>
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                    </svg>
-                                    Retry
-                                </>
-                            )}
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                            Retry
                         </button>
                         <button
                             onClick={handleClear}
-                            className="text-red-500 hover:text-red-700 font-semibold hover:underline flex items-center gap-1"
-                            title="Clear highlight and results"
+                            className="text-xs px-2 py-1 rounded bg-white border border-slate-200 shadow-sm hover:bg-red-50 hover:border-red-100 hover:text-red-500 text-slate-500 font-medium flex items-center gap-1 transition-all"
+                            title="Clear this search"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             Clear
                         </button>
                     </div>
                 </div>
-                <div className="grid grid-cols-2 gap-y-1">
-                    <div><span className="font-medium text-slate-500">Priority:</span> {activeData.queryPrefs.priority}</div>
-                    <div><span className="font-medium text-slate-500">No. of Refs:</span> {activeData.queryPrefs.numReferences}</div>
-                    <div><span className="font-medium text-slate-500">Year:</span> &gt; {activeData.queryPrefs.yearStart}</div>
-                    <div className="col-span-2">
-                        <span className="font-medium text-slate-500">Types:</span> {activeData.queryPrefs.sourceTypes.length > 0 ? activeData.queryPrefs.sourceTypes.join(', ') : 'All'}
-                    </div>
-                    <div className="col-span-2">
-                        <span className="font-medium text-slate-500">Publishers:</span> {activeData.queryPrefs.publisherFilter.length > 0 ? activeData.queryPrefs.publisherFilter.join(', ') : 'All'}
-                    </div>
+                
+                <div className="p-4 bg-white text-xs text-slate-600 space-y-3">
+                     <div className="flex items-start justify-between">
+                        <span className="font-semibold text-slate-500 w-16 shrink-0">Model</span>
+                        <span className="text-right text-slate-800 font-medium">{activeData.queryPrefs.model}</span>
+                     </div>
+                     
+                     <div className="flex items-start justify-between">
+                        <span className="font-semibold text-slate-500 w-16 shrink-0">Priority</span>
+                        <span className="text-right text-slate-800">{activeData.queryPrefs.priority}</span>
+                     </div>
+                     
+                     <div className="flex items-start justify-between">
+                        <span className="font-semibold text-slate-500 w-16 shrink-0">Year</span>
+                        <span className="text-right text-slate-800">{activeData.queryPrefs.yearStart || 'Any'}</span>
+                     </div>
+                     
+                     <div className="flex items-start justify-between">
+                        <span className="font-semibold text-slate-500 w-16 shrink-0">Count</span>
+                        <span className="text-right text-slate-800">{activeData.queryPrefs.numReferences}</span>
+                     </div>
+                     
+                     <div>
+                        <span className="font-semibold text-slate-500 block mb-1">Publishers</span>
+                        <div className="text-slate-800 bg-slate-50 p-1.5 rounded border border-slate-100">
+                           {activeData.queryPrefs.publisherFilter.length > 0 
+                             ? activeData.queryPrefs.publisherFilter.join(', ') 
+                             : <span className="italic text-slate-400">All publishers included</span>}
+                        </div>
+                     </div>
+                     
+                     <div>
+                        <span className="font-semibold text-slate-500 block mb-1">Types</span>
+                        <div className="text-slate-800 bg-slate-50 p-1.5 rounded border border-slate-100">
+                           {activeData.queryPrefs.sourceTypes.length > 0 
+                             ? activeData.queryPrefs.sourceTypes.join(', ') 
+                             : <span className="italic text-slate-400">All document types included</span>}
+                        </div>
+                     </div>
                 </div>
              </div>
           )}
 
-          {/* Empty State / Loading State Logic */}
+          {/* Empty State / Loading State */}
           {!activeData && !uiError && (
-             <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                <svg className="w-12 h-12 mb-2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                </svg>
-                <p className="text-center text-sm">Highlight text and click Search<br/>or click an existing highlight.</p>
+             <div className="flex flex-col items-center justify-center h-64 text-slate-400 mt-10">
+                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                  <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                  </svg>
+                </div>
+                <p className="text-center text-sm font-medium text-slate-500">Ready to search</p>
+                <p className="text-center text-xs mt-1 max-w-[200px]">Highlight text in the editor and click "Find References"</p>
              </div>
           )}
 
           {isCurrentLoading && (
-             <div className="flex flex-col items-center justify-center h-64 text-indigo-600">
-                <div className="scale-150 mb-4"><Spinner /></div>
-                <p className="text-sm font-medium animate-pulse">Finding citations for highlighted text...</p>
-                <p className="text-xs text-indigo-400 mt-2">You can continue working while this runs.</p>
+             <div className="flex flex-col items-center justify-center pt-20 text-indigo-600">
+                <div className="scale-125 mb-4"><Spinner /></div>
+                <p className="text-sm font-medium animate-pulse">Finding citations...</p>
              </div>
           )}
 
           {!isCurrentLoading && activeData && currentReferences.length === 0 && !currentError && (
              <div className="flex flex-col items-center justify-center py-10 text-slate-400">
-                 <p className="text-center text-sm">No references found for this highlight.</p>
+                 <p className="text-center text-sm">No references found.</p>
              </div>
           )}
 
@@ -704,12 +804,12 @@ const App: React.FC = () => {
           ))}
 
           {activeData?.isRefilling && (
-            <div className="flex items-center justify-center py-4 text-indigo-600 text-sm gap-2">
+            <div className="flex items-center justify-center py-4 text-indigo-600 text-xs gap-2">
                 <Spinner /> Fetching additional references...
             </div>
           )}
           
-          <div className="h-6"></div> {/* Spacer */}
+          <div className="h-10"></div>
         </div>
       </div>
     </div>

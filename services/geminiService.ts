@@ -1,37 +1,39 @@
 import { GoogleGenAI } from "@google/genai";
 import { Reference, SearchPreferences, SelectionContext, SortPriority, DisapprovalHistoryItem, DisapprovalReason } from "../types";
 
-const apiKey = process.env.API_KEY || '';
-
 // Reduced batch size to prevent token limit truncation and ensure JSON validity
 const FETCH_BATCH_SIZE = 7;
 
 // Helper to reliably extract and parse JSON from Markdown/Text responses
 const extractAndParseJSON = (text: string): any => {
-    if (!text) return null;
+    if (!text) return [];
 
-    const start = text.indexOf('[');
-    let end = text.lastIndexOf(']');
-    
-    if (start === -1) {
-       throw new Error("No JSON array found in response");
-    }
+    // Remove markdown code blocks if present
+    let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    const start = cleanText.indexOf('[');
+    const end = cleanText.lastIndexOf(']');
 
     let cleanJson = "";
     // If the array is not closed (truncated response), try to recover valid objects
-    if (end === -1 || end < start) {
-      const lastBrace = text.lastIndexOf('}');
+    if (end < start) {
+      const lastBrace = cleanText.lastIndexOf('}');
       if (lastBrace > start) {
-        cleanJson = text.substring(start, lastBrace + 1) + ']';
+        cleanJson = cleanText.substring(start, lastBrace + 1) + ']';
         console.warn("Response was truncated. Recovered partial JSON.");
       } else {
         throw new Error("JSON structure is incomplete and unrecoverable");
       }
     } else {
-      cleanJson = text.substring(start, end + 1);
+      cleanJson = cleanText.substring(start, end + 1);
     }
     
-    return JSON.parse(cleanJson);
+    try {
+        return JSON.parse(cleanJson);
+    } catch (e) {
+        console.error("JSON parse failed on:", cleanJson);
+        throw e;
+    }
 };
 
 // New verification function
@@ -66,9 +68,8 @@ const verifyReferences = async (
     - Return a JSON array of the CONFIRMED references.
     - If you correct a URL, update the "url" field.
     - If a paper is valid, keep it. If not, remove it.
-    - You MUST return the indices of the valid references from the input array, or the full objects. 
-    - To make it easier, return the FULL objects with corrected URLs. 
-    - You must output valid JSON only.
+    - You MUST return the FULL objects with corrected URLs. 
+    - You must output valid JSON only. Do not add any conversational text.
 
     **Structure**:
     [
@@ -119,7 +120,7 @@ const verifyReferences = async (
 
   } catch (error) {
       console.warn("Verification step failed:", error);
-      // Fail open: return original references if verification crashes
+      // Fail open: return original references if verification crashes due to parsing/network
       return references;
   }
 };
@@ -127,8 +128,13 @@ const verifyReferences = async (
 export const fetchReferences = async (
   context: SelectionContext,
   prefs: SearchPreferences,
-  disapprovalHistory: DisapprovalHistoryItem[] = []
+  disapprovalHistory: DisapprovalHistoryItem[] = [],
+  customApiKey?: string
 ): Promise<Reference[]> => {
+  // Use custom key if provided, otherwise fall back to env var
+  let apiKey = customApiKey || process.env.API_KEY || '';
+  apiKey = apiKey.trim();
+  
   if (!apiKey) {
     throw new Error("API Key is missing");
   }
@@ -201,7 +207,7 @@ export const fetchReferences = async (
     1. Use Google Search to find REAL papers. Do not hallucinate citations.
     2. Select papers that strongly support or relate to the highlighted text under the its context (the immediate text before the hightlight).
     3. Return the result strictly as a JSON array. 
-    4. The "authors" field should only contain the first authors and "etc.".
+    4. The "authors" field should only contain the first author and "etc.".
     5. Keep "summary" and "relevance" fields concise (max 50 words each).
     6. Estimate the citation count for the paper if available (approximate is fine).
     
@@ -222,7 +228,7 @@ export const fetchReferences = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: prefs.model || 'gemini-2.5-flash',
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],

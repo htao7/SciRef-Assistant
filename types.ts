@@ -23,6 +23,12 @@ export enum DisapprovalReason {
   UNWANTED_SOURCE = 'unwanted source',
 }
 
+export enum ModelId {
+  BEST = 'gemini-3-pro-preview',
+  BALANCED = 'gemini-2.5-flash',
+  FAST = 'gemini-flash-lite-latest',
+}
+
 export interface SearchPreferences {
   numReferences: number;
   priority: SortPriority;
@@ -30,6 +36,7 @@ export interface SearchPreferences {
   sourceTypes: string[];
   yearStart: string;
   excludeTitles?: string[]; // To prevent duplicates when fetching more
+  model: string;
 }
 
 export interface SelectionContext {

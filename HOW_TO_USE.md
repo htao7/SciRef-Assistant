@@ -4,7 +4,7 @@
 
 ## Quick Start
 
-1.  **Paste Manuscript**: Copy your text into the editor on the left.
+1.  **Paste Manuscript**: Copy your text into the editor.
 2.  **Highlight Text**: Select (highlight) a specific sentence or claim you want to cite.
 3.  **Get References**: The assistant automatically analyzes the context of your selection and finds relevant papers in the right-hand panel.
 
@@ -12,13 +12,12 @@
 
 ### 🔍 Search & Filters
 *   **Context-Aware**: The AI uses the surrounding text to disambiguate and understand the specific meaning of your highlighted claim.
-*   **Filters**: Use the right-hand panel to refine results by **Year**, **Publisher** (e.g., Nature, IEEE), or **Document Type**.
+*   **Filters**: Use the left-hand panel to refine results by **Year**, **Publisher** (e.g., Nature, IEEE), or **Document Type**.
 *   **Priority**: Sort results by "Most Cited", "High Impact Journal", or "Newest First".
 
 ### 🛠️ Refinement & Learning
-*   **Disapprove**: If a reference isn't suitable, click the **Menu (or X)** on the reference card.
+*   **Disapprove**: If a reference isn't suitable, click the **X** on the reference card.
 *   **Reasoning**: Select a reason (e.g., "Not new", "Not relevant"). The AI learns from this feedback and immediately fetches a better replacement that avoids similar pitfalls.
-*   **Verification**: The system automatically verifies URLs and checks that the papers actually exist to prevent hallucinations.
 
 ### 📄 Export
 *   Click the **Export** button to download your manuscript as a text file.
