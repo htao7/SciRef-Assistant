@@ -1,10 +1,10 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { SortPriority, Reference, SearchPreferences, SelectionContext, SearchResultData, DisapprovalReason } from './types';
 import { fetchReferences } from './services/geminiService';
 import { Spinner } from './components/Spinner';
 import { ReferenceCard } from './components/ReferenceCard';
 import { MultiSelect } from './components/MultiSelect';
+import { HelpModal } from './components/HelpModal';
 
 const DEFAULT_TEXT = `The use of self-driving labs (SDLs) that operate in a “closed-loop” manner with minimal human intervention emerged as a promising strategy for addressing this challenge. These labs operate via iterative nanoparticle (NP) syntheses by integrating automation, e.g., robotics or microfluidics (MFs), NP characterization, and machine learning (ML). Automation enables control over reagent injection, mixing, heating, and separation. In particular, MFs offers flow-controlled reagent supply, enhanced mass and heat transfer, and real-time online NP characterization which provides rapid data acquisition. Despite the advantages of automation, the decision on the next-step syntheses for identification of the most effective NP reaction conditions remains in the hands of the operator. Here, ML algorithms play a pivotal role in inferring relationships between reaction conditions and corresponding NP properties, thereby recommending experimental conditions for subsequent optimization steps without examining the entire chemical space. Application of ML algorithms in SDLs include the stable noisy optimization by branch and fit algorithm (SNOBFIT), covariance matrix adaptation evolution strategy (CMA-ES), genetic algorithm, and Bayesian optimization (BO).`;
 
@@ -26,6 +26,9 @@ const App: React.FC = () => {
   // Store results mapped by a unique ID.
   const [searchHistory, setSearchHistory] = useState<Record<string, SearchResultData>>({});
   const [activeSearchId, setActiveSearchId] = useState<string | null>(null);
+  
+  // UI State
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   // State for Preferences (Global controls for the *next* search)
   const [prefs, setPrefs] = useState<SearchPreferences>({
@@ -466,6 +469,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen w-full flex-col md:flex-row bg-slate-100">
+      {isHelpOpen && <HelpModal onClose={() => setIsHelpOpen(false)} />}
       
       {/* LEFT PANEL: EDITOR */}
       <div className="flex-1 flex flex-col p-6 border-r border-slate-200 bg-white h-full overflow-hidden">
@@ -483,6 +487,15 @@ const App: React.FC = () => {
             <div className="bg-slate-100 px-4 py-2 border-b border-slate-300 flex justify-between items-center">
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Manuscript Editor</span>
                 <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => setIsHelpOpen(true)}
+                    className="text-xs flex items-center gap-1 text-slate-500 hover:text-indigo-600 font-medium transition-colors"
+                  >
+                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                     </svg>
+                     How to Use
+                  </button>
                   <button 
                     onClick={handleExport}
                     className="text-xs flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
