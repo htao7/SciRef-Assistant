@@ -1,0 +1,5 @@
+{
+  "name": "SciRef Assistant",
+  "description": "A smart tool for researchers to find context-aware academic references for scientific papers using Google Gemini.",
+  "requestFramePermissions": []
+}
